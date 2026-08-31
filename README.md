@@ -8,6 +8,7 @@
 > videos
 
 ------------------------------------------------------------------------
+<img width="1769" height="752" alt="image" src="https://github.com/user-attachments/assets/a2a7542e-447c-4657-be51-33896e90dffe" />
 
 ## 🚧 What is RoadGuard AI?
 
@@ -196,6 +197,7 @@ Total:    17
 
 [Download]
 ```
+<img width="733" height="700" alt="image" src="https://github.com/user-attachments/assets/d2dc859b-1b04-4525-9cef-6e94f0253ce5" />
 
 ------------------------------------------------------------------------
 
