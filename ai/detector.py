@@ -17,13 +17,26 @@ import math
 import subprocess
 import traceback
 
+# Suppress all OpenCV log/warning messages (codec errors, FFMPEG noise, etc.)
+os.environ.setdefault("OPENCV_LOG_LEVEL", "SILENT")
+os.environ.setdefault("OPENCV_VIDEOIO_DEBUG", "0")
+
 def log(msg):
     sys.stderr.write(f"[RoadGuard-AI] {msg}\n")
     sys.stderr.flush()
 
 try:
+    # Suppress OpenCV's noisy codec/FFMPEG warning messages that go to stderr
+    # and cause non-zero exit codes when run via subprocess on Windows.
+    import os as _os
+    _devnull = open(_os.devnull, 'w')
+    _old_stderr_fd = _os.dup(2)
+    _os.dup2(_devnull.fileno(), 2)
     import cv2
     import numpy as np
+    _os.dup2(_old_stderr_fd, 2)
+    _os.close(_old_stderr_fd)
+    _devnull.close()
 except ImportError:
     log("Installing cv2/numpy runtime fallback...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "opencv-python-headless", "numpy"])
@@ -597,9 +610,18 @@ def process_video(input_path, output_path, video_id="vid_1"):
     detector = HighPrecisionRoadDetector()
     tracker = MultiObjectTracker(fps=fps)
 
-    temp_raw_avi = output_path + ".raw.avi"
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter(temp_raw_avi, fourcc, fps, (width, height))
+    # Write directly to MP4 using OpenCV — no ffmpeg dependency required.
+    # Try H.264 (avc1) first; fall back to mp4v which is universally available.
+    temp_mp4 = output_path + ".tmp.mp4"
+    fourcc_h264 = cv2.VideoWriter_fourcc(*'avc1')
+    out = cv2.VideoWriter(temp_mp4, fourcc_h264, fps, (width, height))
+    if not out.isOpened():
+        log("avc1 codec unavailable, falling back to mp4v")
+        out.release()
+        fourcc_mp4v = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_mp4, fourcc_mp4v, fps, (width, height))
+    if not out.isOpened():
+        raise RuntimeError("Could not open any VideoWriter codec (tried avc1, mp4v). Check OpenCV installation.")
 
     frame_idx = 0
     sample_detections = []
@@ -651,27 +673,65 @@ def process_video(input_path, output_path, video_id="vid_1"):
     cap.release()
     out.release()
 
-    # Re-encode to universal H.264 MP4 for browser playback
-    log(f"Re-encoding to universal H.264 MP4: {output_path}")
+    # Re-encode to browser-native H.264 MP4 using ffmpeg.
+    # OpenCV's mp4v codec is not supported by browsers — H.264 (libx264) is required.
+    # Resolution order:
+    #   1. imageio_ffmpeg bundled binary (installed via pip, no system install needed)
+    #   2. System ffmpeg in PATH
+    #   3. Graceful fallback (video will be black in browser)
+    log(f"Re-encoding to H.264 for browser playback: {output_path}")
+
+    ffmpeg_exe = None
+    # Try imageio_ffmpeg bundled binary first
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+        ffmpeg_exe = get_ffmpeg_exe()
+        log(f"Using bundled ffmpeg: {ffmpeg_exe}")
+    except Exception:
+        pass
+
+    # Fall back to known winget install locations on Windows
+    if not ffmpeg_exe:
+        _winget_base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages")
+        _candidates = [
+            os.path.join(_winget_base, "Gyan.FFmpeg.Essentials_Microsoft.Winget.Source_8wekyb3d8bbwe", "ffmpeg-8.1.1-essentials_build", "bin", "ffmpeg.exe"),
+            os.path.join(_winget_base, "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe", "ffmpeg-9.0.1-full_build", "bin", "ffmpeg.exe"),
+        ]
+        for _c in _candidates:
+            if os.path.exists(_c):
+                ffmpeg_exe = _c
+                log(f"Using winget ffmpeg: {ffmpeg_exe}")
+                break
+
+    # Finally fall back to system PATH
+    if not ffmpeg_exe:
+        ffmpeg_exe = "ffmpeg"
+        log("Trying system ffmpeg from PATH...")
+
     ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", temp_raw_avi,
+        ffmpeg_exe, "-y",
+        "-i", temp_mp4,
         "-c:v", "libx264",
         "-preset", "veryfast",
-        "-crf", "21",
+        "-crf", "23",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         output_path
     ]
-
     try:
-        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if os.path.exists(temp_raw_avi):
-            os.remove(temp_raw_avi)
+        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+        if os.path.exists(temp_mp4):
+            os.remove(temp_mp4)
+        log("H.264 re-encode complete — video is browser-ready.")
+    except FileNotFoundError:
+        log("WARNING: ffmpeg not found. Output video may not play in browser.")
+        log("Fix: run `python -m pip install imageio[ffmpeg]` or install ffmpeg from https://ffmpeg.org")
+        if os.path.exists(temp_mp4):
+            os.replace(temp_mp4, output_path)
     except Exception as e:
-        log(f"ffmpeg conversion fallback: {e}")
-        if not os.path.exists(output_path) and os.path.exists(temp_raw_avi):
-            os.rename(temp_raw_avi, output_path)
+        log(f"ffmpeg re-encode failed ({e}). Using raw OpenCV output.")
+        if os.path.exists(temp_mp4):
+            os.replace(temp_mp4, output_path)
 
     duration_sec = round(frame_idx / max(1, fps), 2)
     final_potholes, final_cracks = tracker.get_consolidated_counts(width, height)

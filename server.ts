@@ -95,7 +95,7 @@ app.get('/api/samples', (req, res) => {
     const exists = samples.filter((s) => fs.existsSync(s.fullPath));
     if (exists.length < samples.length) {
       // Trigger generator script in background
-      spawn('python3', [path.join(process.cwd(), 'ai', 'generate_sample_videos.py')]);
+      spawn('python', [path.join(process.cwd(), 'ai', 'generate_sample_videos.py')]);
     }
 
     res.json({ samples });
@@ -161,7 +161,7 @@ app.post('/api/analyze-video', async (req, res) => {
 
   try {
     // Run Python detection process
-    const pythonProc = spawn('python3', [
+    const pythonProc = spawn('python', [
       pythonScript,
       resolvedInputPath,
       resolvedOutputPath,
@@ -180,20 +180,27 @@ app.post('/api/analyze-video', async (req, res) => {
     });
 
     pythonProc.on('close', (code) => {
-      if (code !== 0) {
-        console.error('Python detector error:', stderrData);
-        return res.status(500).json({
-          error: 'Detection processing failed',
-          details: stderrData || 'Python execution exited with code ' + code,
-        });
-      }
+      // Always try to parse stdout JSON first — the detector outputs valid JSON
+      // even when OpenCV prints codec warnings to stderr (causing non-zero exit codes on Windows).
+      let stats: any = null;
+      let parseErr: any = null;
 
       try {
-        // Parse result JSON from python script output
         const lines = stdoutData.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
-        const stats = JSON.parse(lastLine);
+        // Find the last line that looks like JSON
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim();
+          if (line.startsWith('{')) {
+            stats = JSON.parse(line);
+            break;
+          }
+        }
+      } catch (e) {
+        parseErr = e;
+      }
 
+      // If we have valid stats with no error field, return success
+      if (stats && !stats.error) {
         const result = {
           videoId: videoId || stats.video_id,
           videoName: videoName || path.basename(resolvedInputPath),
@@ -208,16 +215,26 @@ app.post('/api/analyze-video', async (req, res) => {
           originalVideoUrl: videoPath.startsWith('/') ? videoPath : `/uploads/${path.basename(resolvedInputPath)}`,
           sampleDetections: stats.sample_detections || [],
         };
+        return res.json({ success: true, result });
+      }
 
-        res.json({ success: true, result });
-      } catch (parseErr: any) {
-        console.error('Failed to parse Python output:', stdoutData);
-        res.status(500).json({
-          error: 'Failed to parse detector output',
-          rawOutput: stdoutData,
-          stderr: stderrData,
+      // If the Python script reported its own error in JSON
+      if (stats && stats.error) {
+        console.error('Python detector reported error:', stats.error);
+        return res.status(500).json({
+          error: 'Detection processing failed',
+          details: stats.error,
+          traceback: stats.traceback,
         });
       }
+
+      // Genuine failure — no usable output
+      console.error('Python detector failed (exit code', code, '):', stderrData);
+      return res.status(500).json({
+        error: 'Detection processing failed',
+        details: stderrData || `Python exited with code ${code}`,
+        rawOutput: stdoutData,
+      });
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -252,7 +269,9 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`RoadGuard AI Server running at http://0.0.0.0:${PORT}`);
+    console.log(`\nRoadGuard AI Server is running:`);
+    console.log(`  -> Local:   http://localhost:${PORT}`);
+    console.log(`  -> Network: http://127.0.0.1:${PORT}\n`);
   });
 }
 
