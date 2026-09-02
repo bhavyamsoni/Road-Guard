@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { UploadCloud, Film, X, Play, Loader2, Sparkles, CheckCircle2, AlertCircle, FileVideo } from 'lucide-react';
 import { VideoQueueItem } from '../types';
 
@@ -21,6 +21,27 @@ export const VideoUploadZone: React.FC<VideoUploadZoneProps> = ({
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Allow user to press Enter key to start analysis when videos are queued
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        const canStart = queue.length > 0 && !isAnalyzing && !isUploading && queue.some((item) => item.status !== 'completed');
+        if (canStart) {
+          e.preventDefault();
+          onStartAnalysis();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [queue, isAnalyzing, isUploading, onStartAnalysis]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -223,6 +244,9 @@ export const VideoUploadZone: React.FC<VideoUploadZoneProps> = ({
                   <Play className="w-4 h-4 fill-white" />
                   <span>
                     Analyze {queue.length} {queue.length === 1 ? 'Video' : 'Videos'}
+                  </span>
+                  <span className="hidden sm:inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-700/90 text-emerald-100 border border-emerald-500/50">
+                    ↵ Enter
                   </span>
                 </>
               )}
