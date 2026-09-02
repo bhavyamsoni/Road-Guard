@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { HeroSection } from './components/HeroSection';
-import { PipelineSection } from './components/PipelineSection';
 import { FeaturesSection } from './components/FeaturesSection';
-import { SolutionsSection } from './components/SolutionsSection';
-import { BenchmarksSection } from './components/BenchmarksSection';
-import { FaqSection } from './components/FaqSection';
 import { Footer } from './components/Footer';
 import { PlaygroundView } from './components/PlaygroundView';
 import { VideoQueueItem, VideoAnalysisResult } from './types';
+import { API_BASE } from './config';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'landing' | 'playground'>('landing');
@@ -18,6 +15,19 @@ export default function App() {
   const [activeProcessingName, setActiveProcessingName] = useState<string>('');
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [isLoadingSamples, setIsLoadingSamples] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem('rg-dark-mode') === 'true';
+  });
+
+  // Sync dark mode to document root
+  useEffect(() => {
+    localStorage.setItem('rg-dark-mode', String(darkMode));
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
 
   // Sync hash with view
   useEffect(() => {
@@ -59,14 +69,14 @@ export default function App() {
     setGlobalError(null);
     setIsLoadingSamples(true);
     try {
-      const res = await fetch('/api/samples');
+      const res = await fetch(`${API_BASE}/api/samples`);
       const data = await res.json();
       if (data.samples && data.samples.length > 0) {
         const sampleItems: VideoQueueItem[] = data.samples.map((sample: any) => ({
           id: `sample_${sample.id}_${Date.now()}`,
           name: sample.name,
           size: sample.size,
-          previewUrl: sample.path,
+          previewUrl: sample.path.startsWith('http') ? sample.path : `${API_BASE}${sample.path}`,
           serverFilePath: sample.path,
           status: 'pending',
           progress: 0,
@@ -119,7 +129,7 @@ export default function App() {
           const formData = new FormData();
           formData.append('videos', item.file);
 
-          const uploadRes = await fetch('/api/upload', {
+          const uploadRes = await fetch(`${API_BASE}/api/upload`, {
             method: 'POST',
             body: formData,
           });
@@ -148,7 +158,7 @@ export default function App() {
           )
         );
 
-        const analyzeRes = await fetch('/api/analyze-video', {
+        const analyzeRes = await fetch(`${API_BASE}/api/analyze-video`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -168,7 +178,16 @@ export default function App() {
           throw new Error('Analysis completed but no defect data returned');
         }
 
-        const result: VideoAnalysisResult = analyzeData.result;
+        const rawResult: VideoAnalysisResult = analyzeData.result;
+        const result: VideoAnalysisResult = {
+          ...rawResult,
+          processedVideoUrl: rawResult.processedVideoUrl?.startsWith('http')
+            ? rawResult.processedVideoUrl
+            : `${API_BASE}${rawResult.processedVideoUrl}`,
+          originalVideoUrl: rawResult.originalVideoUrl?.startsWith('http')
+            ? rawResult.originalVideoUrl
+            : `${API_BASE}${rawResult.originalVideoUrl}`,
+        };
 
         setQueue((prev) =>
           prev.map((q) =>
@@ -208,16 +227,17 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white transition-colors duration-300">
       {/* Global High-End Navbar */}
       <Header
         currentView={currentView}
         onNavigate={handleNavigate}
         activeCount={queue.length}
+        darkMode={darkMode}
+        onToggleDark={() => setDarkMode(!darkMode)}
       />
 
       {currentView === 'landing' ? (
-        /* DEDICATED SEPARATE LANDING PAGE */
         <main className="flex-1">
           {/* Hero Section */}
           <HeroSection
@@ -226,20 +246,8 @@ export default function App() {
             isLoadingSamples={isLoadingSamples}
           />
 
-          {/* Technical Pipeline Visualizer Section */}
-          <PipelineSection />
-
           {/* Enterprise Capabilities Section */}
           <FeaturesSection />
-
-          {/* Real-World Industry Solutions Section */}
-          <SolutionsSection onEnterPlayground={() => handleNavigate('playground')} />
-
-          {/* Benchmarks & ROI Calculator Section */}
-          <BenchmarksSection />
-
-          {/* Interactive FAQ Section */}
-          <FaqSection />
 
           {/* High-End Enterprise Footer */}
           <Footer onEnterPlayground={() => handleNavigate('playground')} />

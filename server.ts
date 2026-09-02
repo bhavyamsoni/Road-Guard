@@ -7,9 +7,10 @@ import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const PYTHON_CMD = process.env.PYTHON_CMD || (process.platform === 'win32' ? 'python' : 'python3');
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // Directories for storage
@@ -95,7 +96,7 @@ app.get('/api/samples', (req, res) => {
     const exists = samples.filter((s) => fs.existsSync(s.fullPath));
     if (exists.length < samples.length) {
       // Trigger generator script in background
-      spawn('python', [path.join(process.cwd(), 'ai', 'generate_sample_videos.py')]);
+      spawn(PYTHON_CMD, [path.join(process.cwd(), 'ai', 'generate_sample_videos.py')]);
     }
 
     res.json({ samples });
@@ -161,7 +162,7 @@ app.post('/api/analyze-video', async (req, res) => {
 
   try {
     // Run Python detection process
-    const pythonProc = spawn('python', [
+    const pythonProc = spawn(PYTHON_CMD, [
       pythonScript,
       resolvedInputPath,
       resolvedOutputPath,

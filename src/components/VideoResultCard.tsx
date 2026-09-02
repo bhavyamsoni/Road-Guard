@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Download, Film, Disc, AlertTriangle, Layers, Maximize2, Play, Pause, Eye } from 'lucide-react';
 import { VideoAnalysisResult } from '../types';
+import { API_BASE } from '../config';
 
 interface VideoResultCardProps {
   result: VideoAnalysisResult;
@@ -25,7 +26,7 @@ export const VideoResultCard: React.FC<VideoResultCardProps> = ({ result }) => {
   const handleDownload = () => {
     const filename = result.processedVideoUrl.split('/').pop() || 'annotated_road.mp4';
     const link = document.createElement('a');
-    link.href = `/api/download/${filename}`;
+    link.href = `${API_BASE}/api/download/${filename}`;
     link.download = `RoadGuard_${result.videoName.replace(/\.[^/.]+$/, '')}_analyzed.mp4`;
     document.body.appendChild(link);
     link.click();
@@ -35,18 +36,18 @@ export const VideoResultCard: React.FC<VideoResultCardProps> = ({ result }) => {
   const currentVideoSrc = viewMode === 'annotated' ? result.processedVideoUrl : result.originalVideoUrl;
 
   return (
-    <div className="bg-white border border-zinc-200/90 rounded-2xl overflow-hidden shadow-xs transition-all hover:shadow-sm">
+    <div className="bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700 rounded-2xl overflow-hidden shadow-xs transition-all hover:shadow-sm">
       {/* Card Header */}
-      <div className="p-5 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="p-5 border-b border-zinc-100 dark:border-zinc-700 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-zinc-100 text-zinc-700 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shrink-0">
             <Film className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-bold text-zinc-900 truncate" title={result.videoName}>
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 truncate" title={result.videoName}>
               {result.videoName}
             </h3>
-            <div className="flex items-center gap-2 text-xs text-zinc-500 mt-0.5">
+            <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               <span>{result.durationSeconds}s duration</span>
               <span>•</span>
               <span>{result.totalFrames} frames</span>
