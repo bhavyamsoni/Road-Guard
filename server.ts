@@ -257,7 +257,10 @@ app.get('/api/download/:filename', (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true, allowedHosts: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: ['ui-upgrade-115.cluster-9.preview.emergentcf.cloud'],
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
